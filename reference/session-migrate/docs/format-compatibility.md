@@ -1,0 +1,403 @@
+# Session format compatibility
+
+This document records the on-disk behavior observed by this project and the
+exact subset implemented by `session-migrate`. Several agents do not publish
+their local transcript format as a stable interchange standard. Treat these
+findings as versioned integration evidence, not as a vendor promise.
+
+All examples below are schematic and contain no real transcript content.
+
+## Validation scope
+
+The Claude/Codex native write paths are pinned to the two source CLIs in the
+local `basic-claude-uv:latest` integration image. Additional targets are pinned
+to separately installed host binaries:
+
+| Component | Validated version |
+| --- | --- |
+| Image | `sha256:8f170f660813ac358f347fa8a3580139972f3ea7a9fb087834f1da44669d9392` |
+| Claude Code | `2.1.209` |
+| Codex CLI | `0.144.4` |
+| Pi source and target | `0.80.6` |
+| Oh My Pi source and target | `18.0.5` |
+| OpenCode legacy source and target | `1.17.20` |
+| OpenCode v2 transfer adapter | Stock Linux `2.0.22` local gate; `2.0.23` CI pin |
+| GitHub Copilot CLI source and target | `1.0.70` |
+| Antigravity CLI source schema / tested targets | `1.1.16` schema; exact Linux x86_64 `1.1.16` and `1.4.12` targets |
+| Cursor Agent experimental text adapter | `2026.03.20-44cb435` |
+| Mistral Vibe source and target | `2.24.3` |
+| Muse Code source and target | `0.2.1 (0.2.1-R1215.1)` |
+| Qwen Code source and target | `0.22.1` |
+| Kimi Code source and target | `0.38.0` |
+| Grok source and target | `1.0.5` |
+| Kilo Code source and target | `7.5.0` |
+| OpenHands source and target | `1.16.0` (SDK `1.21.0`) |
+| Hermes Agent source and target | `0.20.6` (tag `v2026.8.27`) |
+| MastraCode source and target | `0.37.1` |
+| Devin CLI source and target | `3000.6.7` (`260a97c8`) |
+
+Claude Code `2.1.234` and Codex CLI `0.147.0` were also inspected on the host.
+The Codex `rust-v0.147.0` source was used to understand rollout discovery and
+index repair, but output from those newer versions has not received the same
+native-resume test. The converter warns when a Claude or Codex source declares
+a CLI version other than its pinned version. Pi's v3 header does not declare
+its package version; the accepted schema is native-tested against Pi 0.80.6.
+OMP's v3 header likewise omits the package version; its accepted current
+title-slot schema is native-tested against the exact OMP 18.0.5 Linux x64
+binary.
+
+The exact-client matrix uses isolated homes, dummy keys, and deterministic
+localhost implementations of OpenAI Chat/Responses, Anthropic Messages, and
+Gemini GenerateContent. Claude, Codex, Muse, Qwen, Kimi, Antigravity, Grok,
+Kilo, OpenHands, and the other provider-configurable clients must replay the
+imported prefix and persist a fixed assistant reply. Cursor proves native TUI
+rendering without a model append; Devin proves ACP loading and the vendor-login
+boundary. See
+[Credential-free native client testing](credential-free-native-testing.md).
+
+OpenCode 2.0.x has a separate public-transfer adapter. Its local synthetic tests
+cover native import/export, tool linkage, completed compaction, dry-run and
+identity conflicts; this does not extend the historical eighteen-client corpus
+validation claim. See [OpenCode v2 transfers](opencode-v2.md) for exact scope and
+limitations. No real user transcript migration or native Windows validation has
+been performed for this adapter.
+
+All eighteen formats are sources and targets. Their mappings, native probes, and
+loss keys are specified in [Additional native formats](additional-target-formats.md),
+[OpenCode source research](opencode-source-exploration.md),
+[Copilot source research](copilot-source-format.md),
+[Antigravity](antigravity-format.md), [Cursor](cursor-format.md),
+[Oh My Pi](omp-format.md),
+[Mistral Vibe](vibe-format.md), and
+[Muse/Qwen/Kimi](muse-qwen-kimi-formats.md), and
+[Grok/Kilo/OpenHands](grok-kilo-openhands-formats.md),
+[Hermes](hermes-format.md), [MastraCode](mastracode-format.md), and
+[Devin](devin-format.md). Cursor is
+the exception to the broad portable feature set: its experimental adapter moves
+ordered user/assistant text only and counts every omitted class.
+
+## Discovery and indexes
+
+### Claude Code
+
+The default store is `~/.claude`; `CLAUDE_CONFIG_DIR` replaces that root. A
+project transcript is discovered at:
+
+```text
+$CLAUDE_CONFIG_DIR/projects/<encoded-cwd>/<session-uuid>.jsonl
+```
+
+If `CLAUDE_CONFIG_DIR` is unset, `$CLAUDE_CONFIG_DIR` above means `~/.claude`.
+The project directory name is the absolute working directory with every
+non-ASCII-alphanumeric character replaced by `-`. For example, `/work/a.b`
+becomes `-work-a-b`. This encoding is not injective, so distinct paths can
+collide.
+
+In the inspected corpus, the filename UUID equaled every conversation record's
+`sessionId`. `sessions-index.json` was not required: placing a valid transcript
+at the native path was sufficient for explicit `claude --resume <uuid>`, and
+Claude appended to that file. Global configuration, authentication, and index
+files are therefore neither read nor written by the migrator.
+
+`session-migrate transfer UUID --from claude` searches these project
+directories directly. Supplying `--source-cwd` selects the exact encoded
+project directory; without it, more than one filename match is treated as
+ambiguous because the CWD encoding can collide.
+
+### Codex CLI
+
+The default store is `~/.codex`; `CODEX_HOME` replaces that root and must
+already exist for the pinned CLI. Rollouts are stored at:
+
+```text
+$CODEX_HOME/sessions/YYYY/MM/DD/rollout-YYYY-MM-DDTHH-MM-SS-<session-uuid>.jsonl
+```
+
+Codex also maintains `state_5.sqlite` and related logs, goals, memories, and
+shell snapshots. The SQLite row is a derived discovery cache, not the
+authoritative transcript. Explicit UUID resume fell back to scanning rollout
+files and repaired its state without a pre-created database row. The migrator
+therefore writes only the rollout and its own manifest; it never edits Codex's
+database.
+
+Direct transfer lookup searches both the date-partitioned active store and
+`$CODEX_HOME/archived_sessions`. Duplicate active/archive matches fail closed.
+For every direct source format, transcript metadata must contain the requested UUID;
+a filename alone is not trusted.
+
+### Pi
+
+The default store is `~/.pi/agent`; `PI_CODING_AGENT_DIR` replaces it. Native
+v3 files are enumerated below `sessions/` across all workspace buckets. The
+header declares the session ID, CWD, timestamp, and version; later entries form
+an `id`/`parentId` tree. Direct transfer accepts a unique UUID match and can use
+`--source-cwd` to disambiguate duplicates. The catalog indexes every configured
+Pi root and `session_info.name` without indexing message bodies.
+
+The parser follows the active leaf ancestry, preserving portable messages,
+images, tool calls/results, and compaction while counting abandoned branches
+and runtime metadata. Pi v3 sessions can target every supported format,
+including a fresh Pi v3 portable rewrite.
+
+### Oh My Pi
+
+OMP's default active agent directory is `~/.omp/agent`. For its default
+profile, `PI_CODING_AGENT_DIR` relocates that directory. Current sessions are
+stored below `sessions/` in workspace buckets and begin with an exactly
+256-byte mutable title record followed by a v3 session header and an
+`id`/`parentId` entry tree. That title slot decisively distinguishes current
+OMP journals from Pi journals even when both stores share an environment
+override.
+
+The reader selects the active ancestry, resolves bounded content-addressed
+image blobs, and honors the newest native `reset_boundary`: earlier entries
+are counted as pre-reset state instead of being replayed into the target.
+Legacy slotless OMP v3 journals remain readable with explicit `--format omp`;
+automatic detection treats that ambiguous shape as Pi. Target files always use
+the current fixed-title-slot form. See [the exact OMP contract](omp-format.md).
+
+### Additional native stores
+
+- OpenCode sessions are inventoried from its read-only SQLite `session` / `session_v2` tables
+  and exported/imported only through the pinned official CLI.
+- Copilot sessions use `~/.copilot/session-state/<uuid>/events.jsonl` plus the
+  workspace sidecar and content-addressed assets.
+- Antigravity uses `~/.gemini/antigravity-cli/conversations/<uuid>.db`; the
+  migrator uses a clean-room protobuf/SQLite adapter and updates the native
+  summary row transactionally during install.
+- Cursor uses
+  `~/.cursor/chats/<md5-workspace>/<uuid>/store.db` (subject to config/XDG
+  overrides). Its clean-room content-addressed protobuf graph is pinned to one
+  exact build and supports text only.
+- Vibe uses `$VIBE_HOME/logs/session/session_*_<short-id>/meta.json` plus
+  `messages.jsonl`. Its official public `LLMMessage` schema supports text,
+  readable reasoning, linked tools, images, and compaction boundaries.
+- Muse uses `$XDG_DATA_HOME/muse/sessions/YYYY/MM/DD/<uuid>/session.jsonl`.
+  Its durable intent/run/materialization lifecycle is required for model-context
+  replay, not only picker visibility.
+- Qwen uses `$QWEN_HOME/projects/<encoded-cwd>/chats/<uuid>.jsonl`, an active
+  UUID/parent graph with native title metadata.
+- Kimi uses `$KIMI_CODE_HOME/sessions/<workdir-key>/session_<uuid>/state.json`
+  plus `agents/main/wire.jsonl`; both files are snapshotted and validated as one
+  native session.
+- Hermes keeps all local conversations in `$HERMES_HOME/state.db`; selection is
+  the pair `(state.db, native timestamp-prefixed ID)`.
+- MastraCode keeps every thread in one `mastra.db`, resolved through
+  `MASTRA_DB_PATH`, `MASTRA_APP_DATA_DIR`, or the platform data directory.
+- Devin keeps active session forests in `sessions.db`; the reader follows only
+  the ancestry ending at `main_chain_id`.
+OMP, OpenCode, Copilot, Vibe, Muse, Qwen, Kimi, Grok, Kilo, OpenHands, Hermes,
+MastraCode, and Devin have
+first-class source readers. Antigravity and
+Cursor SQLite readers take consistent snapshots that include committed WAL
+state. Vibe and Kimi snapshot their multi-file sessions and fail if any member
+changes.
+
+## Claude transcript model
+
+A Claude transcript is JSON Lines whose conversation records form a UUID
+graph. A compact observed minimum for a resumable message record is:
+
+```json
+{
+  "type": "user",
+  "message": {"role": "user", "content": "..."},
+  "uuid": "<record-uuid>",
+  "parentUuid": null,
+  "sessionId": "<session-uuid>",
+  "timestamp": "<RFC-3339 timestamp>"
+}
+```
+
+Controlled probes found the timestamp to be required. The migrator emits a more
+conservative native shape: `isSidechain`, `userType`, `cwd`, `version`,
+`gitBranch`, and, for assistants, the Anthropic message wrapper, generated
+message/request IDs, stop fields, and zeroed usage fields. Every emitted
+conversation record gets a new record UUID and is linked into one linear
+`parentUuid` chain.
+
+Important graph and content behavior:
+
+- A trailing `last-prompt.leafUuid`, when valid, identifies the active leaf.
+  The migrator walks `parentUuid` through all UUID-bearing records, including
+  metadata nodes, and follows a compaction boundary's `logicalParentUuid` back
+  into pre-compaction history. It reverses the ancestry walk and emits graph
+  order; physical line order is not semantic order during streamed writes.
+- Without a valid recorded leaf, the last eligible conversation record is used.
+  If it lacks a usable UUID, all eligible conversation records are retained in
+  file order.
+- Inactive branch messages become opaque events and are reported as dropped on
+  write. `isSidechain: true` records are never selected as the main branch.
+- Selected `isMeta: true` nodes remain in ancestry traversal but are emitted
+  only as content-free opaque omissions. Their message/tool blocks are never
+  replayed as target conversation history.
+- Assistant output can be split across several records or several content
+  blocks. Text, `tool_use`, `tool_result`, image, thinking, and document blocks
+  were observed.
+- Tool calls use `id`, `name`, and structured `input`; tool results refer back
+  with `tool_use_id` and may contain text or structured blocks.
+- Compaction is represented by a `system`/`compact_boundary` record plus a user
+  record marked `isCompactSummary: true`. Other system subtypes and top-level
+  attachment/queue/title records exist. A preserved-segment compaction can
+  contain a metadata-declared back-edge; the reader accepts only the validated
+  anchor/head/tail shape observed in native files and rejects other cycles.
+- Subagent transcripts may live below
+  `<session-uuid>/subagents/agent-<id>.jsonl`; the migrator does not recursively
+  import those files. A standalone sidechain file is rejected with a specific
+  instruction to transfer the parent session.
+
+## Codex rollout model
+
+A Codex rollout is also JSON Lines, but it is an ordered envelope stream rather
+than a UUID graph:
+
+```json
+{"timestamp":"<RFC-3339>","type":"<record-type>","payload":{}}
+```
+
+Newer files can add `ordinal`; the pinned writer deliberately emits the legacy
+mode without ordinals. The first envelope is `session_meta`. The conservative
+resumable shape written by the migrator is:
+
+```json
+{
+  "timestamp": "<RFC-3339 timestamp>",
+  "type": "session_meta",
+  "payload": {
+    "session_id": "<session-uuid>",
+    "id": "<session-uuid>",
+    "timestamp": "<RFC-3339 timestamp>",
+    "cwd": "/absolute/project/path",
+    "originator": "session-migrate",
+    "cli_version": "0.144.4",
+    "source": "cli",
+    "model_provider": "openai",
+    "history_mode": "legacy"
+  }
+}
+```
+
+`id`, `session_id`, and the filename UUID agree. A useful conversation then has
+ordered `response_item` envelopes. Text messages use `type: "message"` with
+`input_text` or `output_text` content. Tool activity uses `function_call` and
+`function_call_output`; call arguments are a JSON-encoded string, and both
+records share `call_id`.
+
+For legacy history, `response_item` is the canonical, model-visible history and
+`event_msg` records drive list preview and UI display. The writer emits both
+for text messages so the text is visible to the resumed model and to the
+interface. The reader deduplicates UI messages against response-item messages.
+It uses UI events as a legacy fallback when a rollout has no canonical
+messages. In a mixed partial legacy rollout, exact normalized duplicates are
+removed; unmatched UI projections are retained as marked messages and
+reported in the manifest.
+
+Codex 0.147+ root paginated rollouts use a different authority: completed
+`UserMessage` and `AgentMessage` TurnItems inside
+`event_msg.item_completed`. The reader requires an integer ordinal on every
+record, contiguous from zero. It ignores provider `response_item` messages as
+conversation because those records can include synthetic environment and
+developer context; non-message response items still supply portable tool and
+reasoning data. Direct image/audio user inputs are retained when represented
+by the canonical TurnItem. Local media paths and other TurnItem blocks remain
+explicit opaque losses.
+
+Current legacy rollouts can contain `compacted.replacement_history`. Codex
+installs that array as the effective history at the checkpoint and replays only
+later items. In a bounded structural audit, replacement arrays ended in a
+provider-encrypted `compaction` item; Claude cannot interpret that state. The
+migrator intentionally chooses an expanded-transcript mapping: it retains the
+visible response items that Codex compacted away, omits the encrypted state,
+and emits a dedicated manifest warning. It does not claim an exact
+post-compaction context transfer. The paired `event_msg.context_compacted` UI
+notification is deduplicated against the checkpoint.
+
+Other observed envelopes include `compacted`, `turn_context`, `world_state`,
+reasoning response items, inter-agent communication, and fork-related state.
+Those records are not all portable conversation history.
+
+## Route support
+
+Every ordered pair among the eighteen formats is implemented, for 324 routes:
+
+- full portable adapters: Claude, Codex legacy and root paginated, Pi, OMP, OpenCode, Copilot,
+  Antigravity, Vibe, Muse, Qwen, Kimi, Grok, Kilo, OpenHands, Hermes,
+  MastraCode, and Devin;
+- experimental text-only adapter: Cursor.
+
+Same-format routes are portable rewrites into new sessions, not byte copies.
+Codex `history_base` lineage and paginated subagent projections remain
+fail-closed. Cursor is experimental, build-pinned, and deliberately transfers
+only ordered user/assistant text. The
+detailed table below explains the original Claude/Codex pair; target-specific
+behavior is documented in [Additional native formats](additional-target-formats.md)
+and [Muse/Qwen/Kimi](muse-qwen-kimi-formats.md). Grok, Kilo, and OpenHands
+details are in [their native format note](grok-kilo-openhands-formats.md).
+Hermes, MastraCode, and Devin have dedicated pinned-format notes linked above.
+
+Legend:
+
+- **Supported**: the conversation meaning and applicable linkage identifiers
+  are retained; target-specific wrappers, block grouping, and record UUIDs may
+  be regenerated.
+- **Lossy**: a useful representation is emitted, but grouping, role, status, or
+  source-only metadata is lost. Known omissions appear in the sidecar manifest
+  unless the row explicitly says otherwise.
+- **Unsupported**: no safe target-history representation is emitted.
+
+| Feature | Claude to Codex | Codex to Claude | Exact behavior |
+| --- | --- | --- | --- |
+| User and assistant text | **Supported** | **Supported** | Text and ordering are retained. Empty text blocks are ignored. System/developer roles are explicitly omitted and counted; they are never downgraded into user prompts. |
+| Message timestamps | **Supported** | **Lossy** | Valid timezone-aware timestamps are copied. Claude groups blocks only when they came from the same source record. Invalid/missing values fall back safely and invalid values are counted. |
+| Session ID | **Lossy by default** | **Lossy by default** | A fresh target UUID avoids collision. `--session-id` can explicitly choose the target UUID; source record UUIDs are not reused. |
+| Working directory | **Supported** | **Supported** | Source `cwd` is retained or can be overridden. A missing/nonexistent directory produces a warning. Claude's encoded directory name can collide. |
+| Model/provider metadata | **Lossy** | **Lossy** | Codex provider and Claude target model use target defaults/options. Turn-specific model, policy, sandbox, and token metadata are not reconstructed. |
+| Conversation title | **Unsupported** | **Supported** | A Codex `thread_name_updated` title becomes Claude `custom-title`. A Claude title is omitted from Codex and counted as `session:title`. |
+| Tool call name, input, and ID | **Supported** | **Lossy** | Claude `tool_use` maps to Codex `function_call`; JSON argument strings are parsed when valid. Missing IDs/names receive linked synthetic fallbacks and warnings. Codex free-form input is wrapped in an object for Claude and counted. |
+| Text tool result | **Supported** | **Supported** | Call linkage and text output are retained. Orphan and duplicate call/result IDs are preserved but explicitly counted because the target CLI may diagnose or normalize inconsistent linkage. |
+| Image tool result | **Supported** | **Supported** | Claude base64 sources normalize to self-contained data URLs; remote URLs remain URLs. |
+| Tool error status | **Lossy** | **Lossy** | Codex has no emitted equivalent for Claude `is_error`; the output remains and `tool_result:is_error` is reported. Codex input does not restore an error flag in Claude. |
+| Tool reference result block | **Unsupported** | **Supported when present** | Claude tool references have no emitted Codex equivalent and are counted. A Codex structured output block explicitly typed `tool_reference` can be emitted as Claude `tool_reference`. |
+| Other structured result blocks | **Lossy/unsupported** | **Lossy/unsupported** | Target-equivalent text/images are retained. Audio, encrypted content, and unknown nested blocks are not portable and are counted with an opaque sentinel. |
+| Standalone message image | **Lossy** | **Lossy** | Supported PNG/JPEG/GIF/WebP base64 or HTTP(S) URLs are retained as `input_image` or Claude image source, but original grouping is not guaranteed. Only user-role images transfer; privileged/assistant images and malformed data are counted and omitted. A retained remote URL may be fetched later by the target CLI. |
+| Document block or top-level attachment | **Unsupported** | **Unsupported** | Claude document events are dropped and counted as context. Standalone attachment graph records are opaque. Local files are never copied. |
+| Claude compaction summary | **Lossy** | N/A | A boundary/summary pair becomes exactly one Codex `compacted` message while the selected pre/post history remains ordered. Detailed `compactMetadata`, when present, is omitted and counted. |
+| Codex compaction | N/A | **Lossy** | A legacy `compacted.message` is recognized but omitted from Claude output and counted. For `replacement_history`, visible pre-compaction response items are retained while provider-encrypted compaction state is omitted; `compaction:replacement_history_expanded` explains the semantic difference. |
+| Thinking/reasoning | **Unsupported by design** | **Unsupported by design** | Private thinking or reasoning content is never transferred. A content-free event is counted as dropped. |
+| Active Claude branch | **Supported** | N/A | `last-prompt` ancestry selects one coherent branch. Target output is linear. |
+| Inactive Claude branches | **Unsupported** | N/A | They become opaque events and are counted as dropped; no forks are created. |
+| Claude sidechains/subagents | **Unsupported** | N/A | The catalog indexes nested sidechains as unsupported, but direct lookup/conversion does not import them; transfer the parent session. |
+| Codex legacy linear history | N/A | **Supported** | Ordered response items become one linear Claude UUID graph. |
+| Codex root paginated history | N/A | **Supported** | Contiguous canonical completed TurnItems supply user/assistant turns; provider-context messages are not replayed. Replacement-history compaction uses the expanded-transcript policy above. |
+| Codex paginated forks/subagents | N/A | **Unsupported** | `history_base` and `subagent_history_start_ordinal` require external or projected history and are rejected rather than silently truncating or duplicating a conversation. |
+| Codex UI-only messages | N/A | **Lossy fallback** | Used as the conversation when no response-item messages exist. In a mixed partial file, exact normalized duplicates are removed and unmatched projections are retained with `message:ui_only_projection`; fuzzy matching is never used. |
+| Turn context, policies, world state, snapshots | **Unsupported** | **Unsupported** | Codex `turn_context` is counted as context; `world_state` and `security_risk_score` become counted opaque events. Shell snapshots, approvals, external credential stores, MCP state, memories, goals, and configuration are outside transcript conversion. |
+| Unknown source records/blocks | **Unsupported** | **Unsupported** | They become content-free opaque/sentinel events where recognized and are counted at write time, including unknown nested tool-result blocks. |
+
+## What “resumable” means
+
+The migrator produces a new native conversation containing the portable visible
+history, not a byte-for-byte clone of the original runtime. It does not transfer
+authentication, pending permissions, live processes, shell state, task plans,
+MCP connections, agent teams, or model caches. Tool calls and results provide
+historical context; they are not re-executed.
+
+External credential/configuration stores are excluded, but the migrator performs
+no redaction or secret scanning. Tokens or other secrets embedded in supported
+messages, tool arguments/results, or images are copied into the target
+transcript. Treat source and target native artifacts as equally sensitive.
+
+Imports never mutate the source or intentionally overwrite an existing target. Inputs are
+bounded at 64 MiB per record, 256 MiB per file, and 100,000 records by default.
+Device/inode/size/modification metadata is checked across the read so an
+actively appending or replaced source fails for a clean retry.
+Claude, Codex, Pi, OMP, Copilot, Antigravity, Cursor, Vibe, Muse, Qwen, Kimi,
+Grok, and OpenHands native files plus
+content-free manifests use no-clobber private publication; if manifest creation
+fails after a new filesystem target is created, the error reports whether that
+native session may remain. OpenCode and Kilo instead use their version-gated
+public importers and publish only a private migrator manifest after official
+export-based verification; the migrator never writes either SQLite database.
+Explicit UUID resume is the
+authoritative integration check; picker ordering and previews can vary by CLI
+version and current working directory.
