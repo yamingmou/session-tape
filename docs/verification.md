@@ -1,0 +1,103 @@
+# 验证记录 · session-tape
+
+> 只写**能自己复核**的东西。每条都给了命令，可自行重跑。
+> 判断依据一律是"**目标产品自己**认不认"，不是"我们自己断言它对"。
+
+## 一、能力矩阵（谁 → 谁）
+
+| 方向 | 状态 | 怎么验的 |
+|---|---|---|
+| WorkBuddy → **pi** | ✅ | pi 自己的解析器 + **自动化门禁**（协议桩，四条断言） |
+| WorkBuddy → **codex** | ✅ | **真机验收**：产品自己打开后能继续对话、能执行任务 |
+| **Codex** → pi | ✅ | pi 解析器 + 真续跑（答对内容） |
+| Codex → **WorkBuddy** | ✅ | 隔离库副本上写 + 用 WorkBuddy 口径读回（3 user / 26 assistant） |
+| **pi** → codex | ✅ | 链式第 2 跳，29 条原样过去 |
+| WorkBuddy → pi → codex（**链式**） | ✅ | 29 → 29 → 29，时间保留源的真实日期 |
+| WorkBuddy → WorkBuddy（换目录） | ✅ | 隔离库副本；cwd 已按指定目录改写 |
+
+**还没做**：Claude Code / Hermes / OpenClaw 作为**目标**（作为源已可用）。
+
+## 二、每个目标的"三件事"（新加目标必须回答的）
+
+| 目标 | ① 容器怎么来 | ② 怎么让产品看见 | ③ 怎么验 |
+|---|---|---|---|
+| **pi** | 自己造 header（版本 3 + 8 位 hex id 链） | 文件型：放进 `~/.pi/agent/sessions/<cwd>/` 即可 | 它的 `loadEntriesFromFile` / `buildSessionContext` + 真续跑 |
+| **codex** | 两种：**自己造**（模板行登记）／**官方建壳 + `--fill`**（推荐） | 必须补 `state_5.sqlite` 的 `threads` 一行 + 投影归零 | 它认得会话（resume 时报的是 provider 冲突，不是 not found）；你点运行 |
+| **workbuddy** | 自己造（id 链 + 毫秒时间戳） | 文件 + `sessions` 表一行 | 用 WorkBuddy 口径读回 + 库行字段核对 |
+
+## 三、最快的一条：自检
+
+```sh
+FORK_CORE_PATH=<fork 仓库路径> python3 scripts/selfcheck.py --pi <pi 可执行文件>
+```
+
+它会打印一张 7 行的表：4 份契约测试、噪声过滤、三个目标的往返（渲染→落盘→**用产品口径读回**）、
+链式 WB→读回→codex、以及 pi 的真机门禁。**退出码 0 = 全过**。
+（不给 `--pi` 就跳过真机门禁那行。）
+
+实测输出（2026-11-24）：
+
+```
+契约测试（4 份）       ✅    test_codex_render.py✓ test_noise.py✓ test_pi_render.py✓ test_workbuddy_render.py✓
+噪声过滤              ✅    丢 {'占位/中断文本': 1, '重复投递（相邻同文）': 1}
+pi 往返               ✅    4 条往返一致
+codex 往返            ✅    4 条往返一致；落盘 rollout-2023-11-14T22-13-21-…
+workbuddy 往返        ✅    4 条往返一致；项目目录 tmp-proj
+链式 WB→读回→codex    ✅    WB → 读回 → codex，4 条一致
+pi 真机门禁           ✅    门禁四条断言全过
+```
+
+## 四、逐条命令（想单独跑某一项时用）
+
+```sh
+SK=<本仓库路径>
+export FORK_CORE_PATH=<session-fork-core 的本地检出路径>
+
+# 1) 全部契约测试（4 个，纯断言，不需要任何产品在场）
+for t in $SK/tests/test_*.py; do python3 "$t" || echo "FAIL $t"; done
+
+# 2) 从 WorkBuddy 搬到 pi（产物 + 用产品自己的读法验收）
+python3 -m session_tape --from workbuddy --session <会话id> --to pi --out /tmp/pi-out
+node $SK/lab/verify.mjs $(ls -t /tmp/pi-out/*.jsonl | head -1)
+
+# 3) pi 的自动化门禁（空 HOME + 协议桩，断言历史真的进了上下文）
+python3 $SK/scripts/verify_gate_pi.py --pi /path/to/pi --session <上面那个文件>
+
+# 4) 搬到 codex（官方建壳 + 灌内容：先在界面 fork 一条，拿它的 id）
+python3 -m session_tape --from workbuddy --session <会话id> --to codex \
+  --fill <界面 fork 出来的 id> --name "想显示的名字"
+
+# 5) 搬到 codex（自己造壳 + 登记）
+python3 -m session_tape --from codex --session-file <某 rollout> --to codex \
+  --install-codex-home ~/.codex --name "标题"
+
+# 6) 搬到 WorkBuddy（先指到隔离副本，别写真实库）
+cp ~/.workbuddy/workbuddy.db /tmp/wbtest/workbuddy.db
+python3 -m session_tape --from codex --session-file <某 rollout> --to workbuddy \
+  --install-wb-home /tmp/wbtest --name "标题" --cwd /tmp/某个真实目录
+```
+
+## 五、能力边界（会写进对外说明）
+
+1. **只搬文本历史**：工具调用、附件、思考过程、模型身份都不搬。所以搬过去"读得通、能接着聊"，但**不能指望它在 B 里重放当初的工具动作**。
+2. **单向**，且不保证源里的编码在目标里都有对应物（缺的用模板/默认值补）。
+3. **源只读**：迁移过程不改源产品任何文件。
+4. **DB 型目标需要登记**：只写文件，产品列表里看不见。
+
+## 六、这一版修掉的坑（每条都是真机撞出来的）
+
+| # | 现象 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | 列表里多出几条一模一样的会话 | 复用 fork 的注册逻辑：模板的"第一句"被复制过来（fork 时正好对，迁移时错） | 覆盖 `first_user_message` / `preview` |
+| 2 | 隔离测试写进了真实库 | `CODEX_HOME` 在适配器 `__init__` 里读，设晚了 | 构造前设，`finally` 还原 |
+| 3 | `--limit 3` 切出"没有人类提问"的会话 | 截取方向错（往后丢） | 向前扩到最近的 user 起点；空切片报错 |
+| 4 | pi 打不开会话 | 源里的 cwd 在本机不存在 | 用户指定的就建出来；源推导的就回退并明说 |
+| 5 | 链式迁移目录落到 `1970/01/01` | pi/Claude 的时间戳是 ISO 字符串，只认数字会读成 0 | 支持 ISO 解析；整段无时间时退回"现在" |
+| 6 | workbuddy 会话的项目目录与 cwd 不一致 | 项目目录写死、cwd 被模板带过来 | 目录按 cwd 推导 + 覆盖 cwd |
+
+## 七、还没做的（明确列出，不含糊）
+
+- 目标产品还差 **Claude Code / Hermes / OpenClaw**；
+- **多源批量**：现在一次一条会话，没有"整库搬家"；
+- **同产品跨机**：路径/账号字段还不能自动改写（比如把 `/Users/A/…` 改成 `/home/B/…`）；
+- **发布形态**：只有本地仓库 + tag，没有推到 GitHub / PyPI。
