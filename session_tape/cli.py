@@ -134,8 +134,20 @@ def main(argv: list[str] | None = None) -> int:
         back = eng.read_msgs(db, sid)
         print(f"会话 id : {sid}")
         print(f"写入    : {db}")
-        print(f"产物    : {len(back)} 条读回（旧一代 session/message/part + 新一代 session_v2/session_message 都补）")
-        print("注意    : 产品能否在界面列出未验（本机没有 opencode CLI）——属 L2")
+        print(f"库内读回: {len(back)} 条（**这是我方读器，不算验收**）")
+
+        # 验收一律用产品自己：拿它自己的 `session list` 在目标目录里列一次
+        cli = eng.find_cli()
+        if not cli:
+            print("验收    : ✗ 未通过 —— 找不到 opencode 可执行文件，无法让产品自己列一次")
+            print("          （只证明'写进了库'，不证明'产品看得见'）")
+            return 2
+        listed = eng.listed_by_product(sid, cwd, cli)
+        print(f"验收    : {'✅ 产品自己列出（session list）' if listed else '✗ 未通过 —— 库里有行，但 session list 列不出来'}")
+        if not listed:
+            print("          实测结论：手写库表不足以让产品认（它靠 project 映射）。")
+            print("          官方 `session import` 是正路，但目前对新会话返回 Bad Request，格式未攻克。")
+            return 2
         return 0
 
     mod = render.module(args.dst)

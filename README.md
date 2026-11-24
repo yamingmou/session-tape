@@ -61,7 +61,7 @@
 | | pi | codex | WorkBuddy | Claude Code | Hermes | OpenClaw | OpenCode |
 |---|---|---|---|---|---|---|---|
 | **读**（作为源） | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **写**（作为目标） | ✅ L3 | ✅ L3 | ✅ L2 | ✅ L1 | ✅ L2 | ✅ L1 | ✅ L2 |
+| **写**（作为目标） | ✅ L3 | ✅ L3 | ✅ L2 | ✅ L1 | ✅ L2 | ✅ L1 | ⚠️ **未通过** |
 
 **验收等级**（混着写就是自欺，所以分级标注）：
 
@@ -71,7 +71,7 @@
 | **L2** | 写进产品的真实库/目录副本，用**产品自己的读法**读回，内容一致 |
 | **L1** | 只有格式往返（用我们镜像产品格式的读器读回）；本机没装那个产品，未做真机 |
 
-已跑通的组合（2026-11-24）：WorkBuddy→pi、Codex→opencode、**OpenCode→pi**、WorkBuddy→pi、WorkBuddy→codex、WorkBuddy→WorkBuddy（换目录）、Codex→pi、Codex→codex、Codex→WorkBuddy、pi→codex，以及**链式** WorkBuddy→pi→codex（29 → 29 → 29 条，时间保留源的真实日期）。
+已跑通的组合（2026-11-24）：**OpenCode→pi**、Codex→WorkBuddy、WorkBuddy→pi、WorkBuddy→codex、WorkBuddy→WorkBuddy（换目录）、Codex→pi、Codex→codex、Codex→WorkBuddy、pi→codex，以及**链式** WorkBuddy→pi→codex（29 → 29 → 29 条，时间保留源的真实日期）。
 
 逐条证据与自验命令见 [`docs/verification.md`](docs/verification.md)。
 

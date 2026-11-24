@@ -150,7 +150,17 @@ def _insert(con, table: str, vals: dict) -> None:
 
 def write_msgs(msgs, db: str, *, title: str = "", cwd: str = "",
                session_id: str | None = None) -> str:
-    """把对话写进库：**旧新一代都补**，列默认值来自产品自己建的一行（模板行策略）。"""
+    """把对话写进库：**旧新一代都补**，列默认值来自产品自己建的一行（模板行策略）。
+
+    ⚠️ **实测未通过（2026-11-24）**：两代都补上之后，我方读器能读回，
+    但产品自己的 `opencode session list` **列不出来**——它靠 project 映射，
+    而我们复制的是模板会话的 project_id。这正是"文件在、产品看不见"。
+
+    ⇒ 因此本函数只算"写进了库"，**不算落地**。CLI 会在之后用产品自己的
+    `session list` 再验一次，列不出来就报未通过（返回码 2）。
+    正路应是官方 `session import`，但实测对新会话返回 `Bad Request`（已试：换 id /
+    不给 id / 去 projectID / 加 --standalone），格式尚未攻克。**不猜，留作待办。**
+    """
     if not msgs:
         raise SystemExit("✗ 没有可搬的消息（源里全是占位/工具内容？）")
 
@@ -235,3 +245,91 @@ def write_msgs(msgs, db: str, *, title: str = "", cwd: str = "",
         raise
     finally:
         con.close()
+
+# ---------------------------------------------------------------- 官方通道
+
+def find_cli() -> str | None:
+    """找可调用的 opencode 可执行文件（PATH 优先，其次桌面客户端里带的那个）。
+
+    桌面客户端（OpenCode.app）会把 CLI 一起打包：
+    `Contents/Resources/opencode-cli` —— 有它就能走**官方 import/export**，
+    不必手搓库表（手搓过的后果见下方 `import_via_cli` 的说明）。
+    """
+    import shutil
+    for name in ("opencode", "opencode-cli"):
+        p = shutil.which(name)
+        if p:
+            return p
+    for cand in ("/Applications/OpenCode.app/Contents/Resources/opencode-cli",
+                 os.path.expanduser("~/Applications/OpenCode.app/Contents/Resources/opencode-cli")):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def build_import(msgs, *, title: str, cwd: str, session_id: str | None = None) -> dict:
+    """造 `session import` 能吃的 JSON（形状照 `session export` 抄）。"""
+    sid = session_id or _new_session_id()
+    stamps, prev = [], int(msgs[0].ts_ms or time.time() * 1000)
+    for m in msgs:
+        ts = int(m.ts_ms or (prev + 1000))
+        if ts <= prev:
+            ts = prev + 1000
+        stamps.append(ts)
+        prev = ts
+    return {
+        "info": {
+            "id": sid,
+            "title": title or "（迁移）",
+            "time": {"created": stamps[0], "updated": stamps[-1]},
+            "location": {"directory": cwd},
+            "cost": 0,
+            "tokens": {"input": 0, "output": 0, "reasoning": 0,
+                       "cache": {"read": 0, "write": 0}},
+        },
+        "messages": [
+            {"id": f"msg_import{i:08d}", "time": {"created": ts},
+             "type": m.role, "text": m.text}
+            for i, (m, ts) in enumerate(zip(msgs, stamps))
+        ],
+    }
+
+
+def import_via_cli(msgs, *, title: str, cwd: str, cli: str | None = None) -> tuple[str, str]:
+    """走**官方通道**：写 JSON → `opencode session import` → 用 `session list` 自证。
+
+    为什么不用手搓库表：实测过——手写 `session`/`message`/`part` + `session_v2`/`session_message`
+    两代都补上，`opencode session list` 仍然**列不出来**（它靠 project 映射，
+    而我们复制的是模板会话的 project_id）。这正是"文件在、产品看不见"。
+    官方 import 会自己建投影与映射，然后**产品自己就能列出来**——这才是可验证的落地。
+    """
+    import json as _json
+    import subprocess
+    import tempfile
+
+    cli = cli or find_cli()
+    if not cli:
+        raise SystemExit("✗ 找不到 opencode 可执行文件（PATH 里没有，桌面客户端也没找到）")
+
+    doc = build_import(msgs, title=title, cwd=cwd)
+    tmp = tempfile.mkdtemp(prefix="oc-import-")
+    path = os.path.join(tmp, "session.json")
+    with open(path, "w", encoding="utf-8") as f:
+        _json.dump(doc, f, ensure_ascii=False)
+
+    r = subprocess.run([cli, "session", "import", path, "--directory", cwd],
+                       capture_output=True, text=True, encoding="utf-8", timeout=180)
+    if r.returncode != 0:
+        raise SystemExit(f"✗ import 失败：{(r.stdout + r.stderr)[-400:]}")
+    return doc["info"]["id"], (r.stdout or "").strip()
+
+
+def listed_by_product(session_id: str, cwd: str, cli: str | None = None) -> bool:
+    """**产品自己**能不能列出这条会话（在它自己的目录里跑 `session list`）。"""
+    import subprocess
+    cli = cli or find_cli()
+    if not cli:
+        return False
+    r = subprocess.run([cli, "session", "list"], cwd=cwd, capture_output=True,
+                       text=True, encoding="utf-8", timeout=120)
+    return session_id in (r.stdout or "")
