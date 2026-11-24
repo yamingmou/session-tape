@@ -137,6 +137,24 @@ workbuddy 也是（转录 + `sessions` 一行），少一行就"文件在、列�
    与 `time.streamed/completed/finish/tokens`；末尾要有 `idle` 消息。
    而且 **assistant 在 `export` 里 `text` 本来就是 `None`**（真基准也这样），不是我们的 bug。
 
+### 三个"看起来像迁移坏了、其实不是"的现象（都实测过）
+
+| 现象 | 真因 | 判据 |
+|---|---|---|
+| 历史看得见，输入新消息**一直转圈（工作中）** | 缺 `event_sequence(aggregate_id, seq)` 发号行 ⇒ 产品从低位发号，撞上已有序号 | 真实会话的发号器**总 ≥ 已用最大 seq**（实测差 0~34）；补 `max+1` 即恢复 |
+| 同上 | 继承的模型**免费额度用尽** ⇒ 写一条 `idle{outcome:failed, error:provider.free-limit}` | 查 `session_message` 里最后那条 `idle` 的 `error.type`，一眼可辨 |
+| 回复**空白但成功** | 小模型（如 3B）在长上下文下只吐几个 token，没形成内容块 | `tokens.output` 有值而 `content` 为空 ⇒ 是模型侧，不是迁移侧 |
+
+⭐ 第二条是用户实测的：切到本地 `ollama/qwen2.5:3b` 之后同样的会话**两次都 succeeded**，
+而且 `tokens.input = 10255` / `cache.read = 10257` —— **我们迁的历史确实进了模型上下文**，
+这是"迁移真的成立"最直接的证据。
+
+### 落点：默认项目总是存在，所以"总能迁"
+
+`project` 行只有产品会建，但这不构成阻塞——**装过/打开过 OpenCode 就至少有一个默认项目**。
+所以 `--cwd` 指向客户端不认识的目录时，工具**自动退到最近活跃的已知目录**并明说退到了哪；
+想落在别处就在客户端里打开那个目录一次。
+
 ### 另一个坑（值得记住）
 
 **opencode CLI 不认 `XDG_DATA_HOME`** —— 它永远读 `~/.local/share/opencode/opencode.db`。

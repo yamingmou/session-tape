@@ -62,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--install-codex-home", help="把会话登记进这个 CODEX_HOME（让 codex 列表里看得见）")
     ap.add_argument("--install-wb-home", help="把会话登记进这个 WorkBuddy home（含 workbuddy.db 与 projects/）")
     ap.add_argument("--project", default="", help="workbuddy 目标：写进哪个项目目录（缺省 migrated）")
+    ap.add_argument("--model", default="", help="opencode 目标：指定模型（providerID/model，如 ollama/qwen2.5:3b）")
     ap.add_argument("--fill", help="官方建壳、我们灌内容：把历史写进这条已存在的 codex 会话（id 保持不变）")
     ap.add_argument("--cwd", default="", help="写进目标会话的 cwd（缺省用源的 cwd）")
     ap.add_argument("--name", default="", help="分支/会话标题（写进目标的标题字段）")
@@ -131,21 +132,28 @@ def main(argv: list[str] | None = None) -> int:
         if not db or not os.path.exists(db):
             ap.error("opencode 目标需要 --out 指向 opencode.db")
         cli = eng.find_cli()
-        sid = eng.write_v2(msgs, db, title=title, cwd=cwd, cli=cli)
+        sid = eng.write_v2(msgs, db, title=title, cwd=cwd, cli=cli, model=args.model)
         print(f"会话 id : {sid}")
         print(f"写入    : {db}（session_v2 + session_message，形状照真机基准）")
+        m = getattr(eng.write_v2, "last_model", "")
+        if m:
+            print(f"模型    : 继承自模板 {m}")
+            print("          ⚠ 若该模型额度已用尽，界面会表现为『输入后一直工作中』；")
+            print("            实为 idle{failed: provider.free-limit}，不是迁移问题。可用 --model 指定别的。")
 
         if not cli:
             print("验收    : ✗ 未通过 —— 找不到 opencode 可执行文件，无法让产品自己列一次")
             return 2
         # 验收一律用产品自己：list（能否列出）+ export（内容对不对）
-        listed = eng.listed_by_product(sid, cwd, cli)
+        # 验收要用**实际落点**（写入可能因回落换了目录）
+        eff_cwd = getattr(eng.write_v2, "last_cwd", cwd)
+        listed = eng.listed_by_product(sid, eff_cwd, cli)
         print(f"验收-列 : {'✅ session list 里有这条' if listed else '✗ session list 里没有'}")
         ok_content = False
         if listed:
             import json as _json
             import subprocess as _sp
-            r = _sp.run([cli, "session", "export", sid], cwd=cwd, capture_output=True,
+            r = _sp.run([cli, "session", "export", sid], cwd=eff_cwd, capture_output=True,
                         text=True, encoding="utf-8", timeout=120)
             if r.returncode == 0 and r.stdout.strip():
                 doc = _json.loads(r.stdout)

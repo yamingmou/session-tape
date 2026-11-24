@@ -374,7 +374,8 @@ def known_directories(db: str) -> list[str]:
 
 
 def write_v2(msgs, db: str, *, title: str = "", cwd: str = "",
-             session_id: str | None = None, cli: str | None = None) -> str:
+             session_id: str | None = None, cli: str | None = None,
+             model: str = "") -> str:
     """只写**新一代** `session_v2` + `session_message`（形状照真机基准 `测试输出1` 抄）。
 
     与旧实现的差别（都是实测出来的）：
@@ -396,12 +397,18 @@ def write_v2(msgs, db: str, *, title: str = "", cwd: str = "",
 
     pid = find_project(db, cwd)
     if not pid:
+        # 落点受限不构成阻塞：**只要装过/打开过 OpenCode，就一定有默认项目**。
+        # 所以这里自动退到客户端最近活跃的那个已知目录，并明说退到了哪里。
         dirs = known_directories(db)
-        raise SystemExit(
-            "✗ 这个目录在客户端里还没有出现过，产品不会列出这条会话。\n"
-            f"  目录：{cwd}\n"
-            "  办法：在 OpenCode 客户端里打开这个目录（或在那里新建一次会话），再重试。\n"
-            "  客户端已认可的目录：\n" + "\n".join(f"    · {d}" for d in dirs[:10]))
+        if not dirs:
+            raise SystemExit(
+                "✗ 这个 OpenCode 库里还没有任何目录——先在客户端里打开一次（它会建默认项目），再重试。")
+        fallback = dirs[0]
+        pid = find_project(db, fallback)
+        print(f"落点    : 目标目录客户端还不认识（{cwd}）")
+        print(f"          已自动改到默认项目：{fallback}")
+        print(f"          想落在别处：先在客户端里打开那个目录一次，再用 --cwd 指定。")
+        cwd = fallback
 
     con = _connect(db)
     try:
@@ -422,7 +429,16 @@ def write_v2(msgs, db: str, *, title: str = "", cwd: str = "",
             "tokens_cache_read": 0, "tokens_cache_write": 0,
         })
         row.setdefault("slug", "migrated-session")
+        # 模型：默认继承模板行。⚠️ 实测踩过：模板可能是**免费额度**的模型，
+        # 用尽后产品表现为"输入了新消息一直转圈（工作中）"，并写一条
+        # idle{outcome:failed, error:provider.free-limit} —— 看起来像迁移坏了，其实不是。
+        # 需要时用 --model providerID/model 指定，例如 ollama/qwen2.5:3b。
+        if model:
+            pid_, _, mid = model.partition("/")
+            row["model"] = json.dumps({"id": mid or pid_, "providerID": pid_ if mid else "opencode"},
+                                      ensure_ascii=False)
         _insert(con, "session_v2", row)
+        inherited_model = row.get("model")
 
         model = {"id": "migrated", "providerID": "migrated", "variant": "default"}
         seq = 1
@@ -452,7 +468,15 @@ def write_v2(msgs, db: str, *, title: str = "", cwd: str = "",
             "time_created": stamps[-1], "time_updated": stamps[-1],
             "data": json.dumps({"time": {"created": stamps[-1]}, "outcome": "succeeded"}),
         })
+
+        # ⭐ 发号器：产品靠 `event_sequence(aggregate_id, seq)` 给**新消息**发号。
+        # 不补这一行，产品从低位发号 ⇒ 撞上我们已用的序号 ⇒ 顺序乱 ⇒
+        # 表现就是"历史看得到、输入了新消息却一直转圈（工作中）"。
+        # 真实会话里这个值总 ≥ 已用最大 seq（实测差值 0~34），这里取 max+1 最保守。
+        _insert(con, "event_sequence", {"aggregate_id": sid, "seq": seq, "owner_id": None})
         con.commit()
+        write_v2.last_model = inherited_model if isinstance(inherited_model, str) else ""
+        write_v2.last_cwd = cwd          # 实际落点（可能因回落而与请求的不同）
         return sid
     except Exception:
         con.rollback()
