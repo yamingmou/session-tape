@@ -72,6 +72,9 @@ Combinations exercised so far (2026-11-24): WorkBuddy→pi, WorkBuddy→codex, W
 
 Per-case evidence and the exact commands to reproduce it: see [`docs/verification.md`](docs/verification.md) (Chinese).
 
+> **One honest limit**: writing a file or a database row does not mean the product shows it. The only thing we can assert automatically is a proxy — that the product's consumption cursor sits at its initial value. **A passing proxy is not proof of visibility; a failing one is proof of invisibility.** See [`docs/verification.md`](docs/verification.md).
+
+
 ## Up and running in 60 seconds
 
 ### Install (pick one)

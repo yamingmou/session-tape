@@ -75,6 +75,9 @@
 
 逐条证据与自验命令见 [`docs/verification.md`](docs/verification.md)。
 
+> **一处诚实的边界**：写进文件/库不等于产品看得见。我们只能自动断言"消费进度为初始值"这个代理指标——**代理指标通过 ≠ 产品可见，但它失败就一定看不见**。详见 [`docs/verification.md`](docs/verification.md)。
+
+
 ## 60 秒上手
 
 ### 装（三选一）

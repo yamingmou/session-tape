@@ -101,3 +101,21 @@ python3 -m session_tape --from codex --session-file <某 rollout> --to workbuddy
 - **多源批量**：现在一次一条会话，没有"整库搬家"；
 - **同产品跨机**：路径/账号字段还不能自动改写（比如把 `/Users/A/…` 改成 `/home/B/…`）；
 - **发布形态**：只有本地仓库 + tag，没有推到 GitHub / PyPI。
+
+## 六、一条诚实的边界：我们无法断言"产品可见"
+
+写文件 ≠ 产品看得见。codex 是两件套（rollout 文件 + `threads` 一行），
+workbuddy 也是（转录 + `sessions` 一行），少一行就"文件在、列表里没有"。
+
+但**"出现在列表里"这件事我们无法自动断言**——那要跑产品自己的 UI 与索引逻辑。
+所以我们只断言一条**能读的代理指标**：
+
+> **消费进度必须是初始值 `(0,0)`**（`thread_history_1.sqlite` 的 `thread_history_projection_state`）
+
+产品记着"这条 rollout 我消费到第 N 字节"。若 N>0，新写的内容永远不会被解析，界面就是空的或旧内容。
+所以：**代理指标通过 ≠ 产品可见；但它失败就一定看不见。**
+
+代码位置：`session_tape/render/codex.py::_assert_projection_zero`，在登记与灌内容之后都会跑，
+失败就报错并说明该把哪两个字段归零。测试见 `tests/test_codex_projection.py`。
+
+同样的道理适用于另外几个目标：L1 那两家（claude-code / openclaw）连"产品看得见"这一层都没有验证过。

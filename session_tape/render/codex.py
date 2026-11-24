@@ -156,6 +156,7 @@ def fill(msgs, target_id: str, *, codex_home: str = "", title: str = "") -> tupl
             con.commit()
         finally:
             con.close()
+        _assert_projection_zero(ad, target_id)      # 同一条代理指标
 
         # ③ 列表显示
         first_user = next((m.text for m in msgs if m.role == "user"), "")
@@ -187,6 +188,35 @@ def _ms_from_iso(s: str | None) -> int:
         return int(dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
     except Exception:
         return 0
+
+
+def _assert_projection_zero(ad, thread_id: str) -> tuple[int, int]:
+    """断言 **消费进度为初始值 (0,0)** —— 这是"产品可见"的可自动检查代理指标。
+
+    为什么不直接断言"它出现在列表里"：那要跑产品自己的 UI/索引逻辑，我们做不到，
+    而且按接口边界（不承诺可见）本来也不该承诺。但**这一条是能读的**：
+
+        产品以为"这段 rollout 我消费到第 N 字节" ⇒ next_rollout_byte_offset > 0
+        ⇒ 新写的内容永远不会被解析 ⇒ 界面空或停在旧内容。
+
+    所以断言 `(0,0)`：**代理指标通过 ≠ 产品可见**，但它失败就一定看不见。
+    """
+    con = ad._connect(ad.HISTORY_DB)
+    try:
+        row = con.execute(
+            "select next_rollout_byte_offset, next_rollout_ordinal "
+            "from thread_history_projection_state where thread_id=?", (thread_id,)).fetchone()
+    finally:
+        con.close()
+    if row is None:
+        raise SystemExit(
+            f"✗ 登记后找不到投影状态行（thread {thread_id[:8]}…）⇒ 产品一定看不见这条会话。")
+    off, ordn = int(row[0]), int(row[1])
+    if (off, ordn) != (0, 0):
+        raise SystemExit(
+            f"✗ 投影状态不是初始值（{off}, {ordn}）⇒ 产品会以为这段已消费过，界面将为空或旧内容。"
+            f"把 next_rollout_byte_offset / next_rollout_ordinal 归零后重试。")
+    return off, ordn
 
 
 def register(path: str, thread_id: str, title: str, *, codex_home: str = "",
@@ -238,6 +268,9 @@ def register(path: str, thread_id: str, title: str, *, codex_home: str = "",
                 con.commit()
             finally:
                 con.close()
+
+        # 可见性的可自动代理：投影必须归零（见 _assert_projection_zero 的说明）
+        _assert_projection_zero(ad, thread_id)
         return template["id"]
     finally:
         if codex_home:
