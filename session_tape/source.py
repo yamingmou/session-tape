@@ -48,9 +48,23 @@ def _ts_of(obj: dict) -> int:
 
 
 def read(product: str, session_ref: str) -> Source:
-    # 本仓库自持的引擎优先（fork_core 只覆盖我们原有的六个产品）
+    # 读侧**优先走 session-fork-core 的适配器层**（同一套读法，两边共用）；
+    # 只有当那份适配器层还没有这个产品时，才退到本仓库自持的引擎。
+    # 这样"录音机"对外只依赖一个东西：session-fork-core。
     from . import engines
     if product in engines.ENGINES:
+        try:
+            fa = _load_fork_core()
+            ad = fa.get_adapter(product)
+            if getattr(ad, "is_available", lambda: False)():
+                sid = ad.resolve_session(session_ref)
+                path, cwd = ad.find_transcript(sid)
+                if path:
+                    return _normalize(ad, path, product, sid, cwd or "")
+        except SystemExit:
+            pass
+        except Exception:
+            pass
         eng = engines.get(product)
         db = eng.find_db()
         if not db:
