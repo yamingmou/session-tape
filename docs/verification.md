@@ -95,32 +95,54 @@ python3 -m session_tape --from codex --session-file <某 rollout> --to workbuddy
 | 5 | 链式迁移目录落到 `1970/01/01` | pi/Claude 的时间戳是 ISO 字符串，只认数字会读成 0 | 支持 ISO 解析；整段无时间时退回"现在" |
 | 6 | workbuddy 会话的项目目录与 cwd 不一致 | 项目目录写死、cwd 被模板带过来 | 目录按 cwd 推导 + 覆盖 cwd |
 
-## 七、还没做的（明确列出，不含糊）
 
-- 目标产品还差 **Claude Code / Hermes / OpenClaw**；
-- **多源批量**：现在一次一条会话，没有"整库搬家"；
-- **同产品跨机**：路径/账号字段还不能自动改写（比如把 `/Users/A/…` 改成 `/home/B/…`）；
-- **发布形态**：只有本地仓库 + tag，没有推到 GitHub / PyPI。
-
-## 六、一条诚实的边界：我们无法断言"产品可见"
+## 七、一条诚实的边界：我们无法断言"产品可见"
 
 写文件 ≠ 产品看得见。codex 是两件套（rollout 文件 + `threads` 一行），
 workbuddy 也是（转录 + `sessions` 一行），少一行就"文件在、列表里没有"。
 
-但**"出现在列表里"这件事我们无法自动断言**——那要跑产品自己的 UI 与索引逻辑。
-所以我们只断言一条**能读的代理指标**：
+但"出现在列表里"这件事**不一定**能自动断言——那要跑产品自己的索引逻辑。
+所以 codex 侧我们只断言一条**能读的代理指标**：
 
 > **消费进度必须是初始值 `(0,0)`**（`thread_history_1.sqlite` 的 `thread_history_projection_state`）
 
 产品记着"这条 rollout 我消费到第 N 字节"。若 N>0，新写的内容永远不会被解析，界面就是空的或旧内容。
 所以：**代理指标通过 ≠ 产品可见；但它失败就一定看不见。**
 
-代码位置：`session_tape/render/codex.py::_assert_projection_zero`，在登记与灌内容之后都会跑，
+代码位置：`session_tape/render/codex.py::_assert_projection_zero`，登记与灌内容之后都会跑，
 失败就报错并说明该把哪两个字段归零。测试见 `tests/test_codex_projection.py`。
 
-同样的道理适用于另外几个目标：L1 那两家（claude-code / openclaw）连"产品看得见"这一层都没有验证过。
+## 八、OpenCode：**读通过，写未通过**（一次有价值的失败）
 
+**基线**：OpenCode 桌面客户端 2.2.7（`/Applications/OpenCode.app`，内含 `opencode-cli` 2.2.7）。
 
-## 七、OpenCode（第七个产品：**读通过，写未通过**）
+| 项 | 状态 |
+|---|---|
+| 读（作为源） | ✅ 真实库可读；已跑通 **OpenCode→pi**（4 条，角色与文本正确） |
+| 写（作为目标） | ❌ **未通过** |
+| 产品自己列出 | ❌ 手写库表后 `opencode session list` 在目标目录里为空 |
 
-见上：读可用；写实测未通过（产品列不出来）。细节留在本次提交信息与代码注释里。
+### 实测记录（不是推测）
+
+1. 库里**两代存储**（`session/message/part` 与 `session_v2/session_message`），两代都补上后
+   **我方读器能读回 10 条**，但产品自己的 `session list` 空——它靠 project 映射，
+   而我们复制的是模板会话的 `project_id`。这就是"文件在、产品看不见"。
+2. 官方通道存在：`opencode session import <json> --directory <dir>`，JSON 照 `session export` 抄
+   （`{info:{…}, messages:[{id,time,type,text}]}`），但**对新会话一律 `Bad Request`**。
+   已试：换新 id / 不给 id / 去 `projectID` / 去 `permissions` / 加 `--standalone` —— 全都不收。
+   把产品自己导出的文件**原样**导回，它回 `Session already exists` ⇒ import 本身能用，校验卡在别处，未找到。
+3. ⇒ 按纪律**不许拿我方读器当验收**：`--to opencode` 现在写完会用产品自己的 `session list` 再验一次，
+   列不出来就以返回码 2 报"未通过"，并打印上面这些事实。
+
+### 这次失败的价值
+
+它把"写进库"和"产品认"的差距量化了一次：**两代表全对 + 我方读器全对，产品依然看不见。**
+这与上游踩坑记录的 `zcode-5`／`opencode-1` 同族，也印证了我们自己划的接口边界。
+
+## 九、还没做的（明确列出，不含糊）
+
+- **OpenCode 的写**：官方 import 的 JSON 校验未攻克（读已可用）；
+- 目标产品还差 **cursor / kimi / qwen / gemini / cline / kilo**；
+- **多源批量**：现在一次一条会话，没有"整库搬家"；
+- **同产品跨机**：路径/账号字段还不能自动改写（`/Users/A/…` → `/home/B/…`）；
+- **L1 那两家的界面可见**：claude-code / openclaw 只到格式往返。
