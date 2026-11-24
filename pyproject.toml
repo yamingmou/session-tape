@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "session-tape"
-version = "0.1.1"
+version = "0.1.2"
 description = "把一个产品的会话历史搬到另一个产品里继续（只搬文本历史，单向）"
 readme = "README.md"
 requires-python = ">=3.10"
