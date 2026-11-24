@@ -48,6 +48,33 @@ def _ts_of(obj: dict) -> int:
 
 
 def read(product: str, session_ref: str) -> Source:
+    # 本仓库自持的引擎优先（fork_core 只覆盖我们原有的六个产品）
+    from . import engines
+    if product in engines.ENGINES:
+        eng = engines.get(product)
+        db = eng.find_db()
+        if not db:
+            raise SystemExit(f"✗ 找不到 {product} 的库；用 --out/--from 指定，或先跑一次产品")
+        sid = session_ref
+        if session_ref in ("current", "latest-working", "latest"):
+            rows = eng.list_sessions(db, 1)
+            if not rows:
+                raise SystemExit(f"✗ {product} 库里没有会话")
+            sid = rows[0][0]
+        msgs = eng.read_msgs(db, sid)
+        if not msgs:
+            raise SystemExit(f"✗ 会话 {sid} 里没有可搬的对话")
+        cwd = ""
+        try:
+            import sqlite3
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            row = con.execute("select directory from session where id=?", (sid,)).fetchone()
+            cwd = (row[0] if row else "") or ""
+            con.close()
+        except Exception:
+            pass
+        return Source(product=product, session_id=sid, msgs=msgs, cwd=cwd)
+
     fork_adapters = _load_fork_core()
     adapter = fork_adapters.get_adapter(product)
 

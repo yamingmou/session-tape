@@ -55,10 +55,10 @@ We're not racing for product count. This project is about the mechanism: get "it
 
 Reading and writing are independent, so the cost is N + M adapters rather than N × M converters.
 
-| | pi | codex | WorkBuddy | Claude Code | Hermes | OpenClaw |
-|---|---|---|---|---|---|---|
-| **read** (as source) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **write** (as target) | ✅ L3 | ✅ L3 | ✅ L2 | ✅ L1 | ✅ L2 | ✅ L1 |
+| | pi | codex | WorkBuddy | Claude Code | Hermes | OpenClaw | OpenCode |
+|---|---|---|---|---|---|---|---|
+| **read** (as source) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **write** (as target) | ✅ L3 | ✅ L3 | ✅ L2 | ✅ L1 | ✅ L2 | ✅ L1 | ✅ L2 |
 
 Verification levels — labelled because mixing them would be self-deception:
 

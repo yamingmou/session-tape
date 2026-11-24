@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="源产品（workbuddy / claude-code / codex / hermes / pi / openclaw）")
     ap.add_argument("--session", help='源会话引用（id，或 "current"）；与 --session-file 二选一')
     ap.add_argument("--session-file", help="直接指定转录文件（用于 id 有歧义的产品，如 Codex 的线程级 id）")
-    ap.add_argument("--to", dest="dst", default="pi", help="目标产品（pi / codex / workbuddy / claude-code / hermes / openclaw）")
+    ap.add_argument("--to", dest="dst", default="pi", help="目标产品（pi / codex / workbuddy / claude-code / hermes / openclaw / opencode）")
     ap.add_argument("--out", help="输出位置：目录（按目标惯例命名）或 .jsonl 路径")
     ap.add_argument("--install-codex-home", help="把会话登记进这个 CODEX_HOME（让 codex 列表里看得见）")
     ap.add_argument("--install-wb-home", help="把会话登记进这个 WorkBuddy home（含 workbuddy.db 与 projects/）")
@@ -122,6 +122,22 @@ def main(argv: list[str] | None = None) -> int:
             cwd = fallback
 
     title = args.name or "（迁移）"
+
+    # ---- opencode（库型：两代存储都补）----
+    if args.dst == "opencode":
+        from . import engines
+        eng = engines.get("opencode")
+        db = os.path.expanduser(args.out) if args.out else eng.find_db()
+        if not db or not os.path.exists(db):
+            ap.error("opencode 目标需要 --out 指向 opencode.db（建议先复制一份再试）")
+        sid = eng.write_msgs(msgs, db, title=title, cwd=cwd)
+        back = eng.read_msgs(db, sid)
+        print(f"会话 id : {sid}")
+        print(f"写入    : {db}")
+        print(f"产物    : {len(back)} 条读回（旧一代 session/message/part + 新一代 session_v2/session_message 都补）")
+        print("注意    : 产品能否在界面列出未验（本机没有 opencode CLI）——属 L2")
+        return 0
+
     mod = render.module(args.dst)
 
     if args.dst == "pi":

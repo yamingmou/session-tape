@@ -119,3 +119,23 @@ workbuddy 也是（转录 + `sessions` 一行），少一行就"文件在、列�
 失败就报错并说明该把哪两个字段归零。测试见 `tests/test_codex_projection.py`。
 
 同样的道理适用于另外几个目标：L1 那两家（claude-code / openclaw）连"产品看得见"这一层都没有验证过。
+
+## 七、OpenCode（第七个产品，本仓库自持读器 + 写器）
+
+**基线**：OpenCode 1.14.28，`~/.local/share/opencode/opencode.db`（实测 18 会话）。
+
+| 项 | 状态 |
+|---|---|
+| 读（作为源） | ✅ 真实库可读（已跑通 OpenCode→pi：4 条，角色与文本正确） |
+| 写（作为目标） | ✅ **L2**：写进真实库副本，用本仓库读器读回逐条一致；原有 18 会话只增一条，不覆盖 |
+| 界面可见 | ❌ **未验**（本机没有 OpenCode CLI） |
+
+**这个产品有一个必须说清的坑**：库里有**两代存储**——
+
+| 代 | 表 | 现象 |
+|---|---|---|
+| 旧 | `session` / `message`（`data.role`）/ `part`（`data.type`） | 有的会话只有这一代 |
+| 新 | `session_v2` / `session_message`（`type` + `seq`，`data` 扁平） | 有的会话两代都有 |
+
+**只写一代就是押注产品认哪一代**，押错的表现是"文件在、产品看不见"。所以写入时**两代都补**，
+测试里对两代都做了断言（`session=1 / legacy_message=N / session_v2=1 / session_message=N`）。

@@ -173,7 +173,7 @@ def main() -> int:
     ap.add_argument("--pi", help="pi 可执行文件（给了就跑真机门禁）")
     args = ap.parse_args()
 
-    check("契约测试（4 份）", t_tests)
+    check("契约测试（全部）", t_tests)
     check("噪声过滤", t_noise)
     check("pi 往返", t_pi_roundtrip)
     check("codex 往返", t_codex_roundtrip)
