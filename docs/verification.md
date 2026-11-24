@@ -112,32 +112,36 @@ workbuddy 也是（转录 + `sessions` 一行），少一行就"文件在、列�
 代码位置：`session_tape/render/codex.py::_assert_projection_zero`，登记与灌内容之后都会跑，
 失败就报错并说明该把哪两个字段归零。测试见 `tests/test_codex_projection.py`。
 
-## 八、OpenCode：**读通过，写未通过**（一次有价值的失败）
+## 八、OpenCode：**读通过、写通过（L3）**
 
 **基线**：OpenCode 桌面客户端 2.2.7（`/Applications/OpenCode.app`，内含 `opencode-cli` 2.2.7）。
 
 | 项 | 状态 |
 |---|---|
-| 读（作为源） | ✅ 真实库可读；已跑通 **OpenCode→pi**（4 条，角色与文本正确） |
-| 写（作为目标） | ❌ **未通过** |
-| 产品自己列出 | ❌ 手写库表后 `opencode session list` 在目标目录里为空 |
+| 读（作为源） | ✅ 真实库可读；已跑通 **OpenCode→pi** |
+| 写（作为目标） | ✅ **L3**：`opencode session list` 列得出来，`session export` 导得出且用户消息逐条一致 |
+| 已跑通 | ✅ **WorkBuddy→OpenCode**（29 条，产品侧验收通过） |
 
-### 实测记录（不是推测）
+### 怎么攻下来的（试出来的，不是设计出来的）
 
-1. 库里**两代存储**（`session/message/part` 与 `session_v2/session_message`），两代都补上后
-   **我方读器能读回 10 条**，但产品自己的 `session list` 空——它靠 project 映射，
-   而我们复制的是模板会话的 `project_id`。这就是"文件在、产品看不见"。
-2. 官方通道存在：`opencode session import <json> --directory <dir>`，JSON 照 `session export` 抄
-   （`{info:{…}, messages:[{id,time,type,text}]}`），但**对新会话一律 `Bad Request`**。
-   已试：换新 id / 不给 id / 去 `projectID` / 去 `permissions` / 加 `--standalone` —— 全都不收。
-   把产品自己导出的文件**原样**导回，它回 `Session already exists` ⇒ import 本身能用，校验卡在别处，未找到。
-3. ⇒ 按纪律**不许拿我方读器当验收**：`--to opencode` 现在写完会用产品自己的 `session list` 再验一次，
-   列不出来就以返回码 2 报"未通过"，并打印上面这些事实。
+前两次都失败：手写两代库表 → 产品列不出来；官方 `session import` → 对新会话一律 `Bad Request`。
+转折点是**拿产品自己建的会话当基准**（在客户端里新建一条，再逐字段 diff），由此得到四个事实：
 
-### 这次失败的价值
+1. **新版只写 `session_v2` + `session_message`**，`session` 表里 0 行；
+2. **必须有 `project` 行**，否则 `session list` 空（它按目录→项目过滤）；
+3. **`project.id` 算不出来**：13 个已知行、7 种哈希变体（sha1/sha256/blake2b/md5/加斜杠/realpath/加前缀）**0 命中**
+   ⇒ 是产品创建时生成的随机 id。而且 **`project` 行只有产品自己会建**（在客户端里打开该目录/在那里建会话时），
+   我们试过三种"借产品的手"（`session list` / 原样 import / 改 id 后再 import）都不建。
+   ⇒ **写入的目录必须是客户端已认可的目录**；`--to opencode` 会列出可用目录并明说要先在客户端里打开一次。
+4. **消息 data 的真实形状**：user 带 `metadata.displayText/agent/model`；assistant 带 `content` 块
+   与 `time.streamed/completed/finish/tokens`；末尾要有 `idle` 消息。
+   而且 **assistant 在 `export` 里 `text` 本来就是 `None`**（真基准也这样），不是我们的 bug。
 
-它把"写进库"和"产品认"的差距量化了一次：**两代表全对 + 我方读器全对，产品依然看不见。**
-这与上游踩坑记录的 `zcode-5`／`opencode-1` 同族，也印证了我们自己划的接口边界。
+### 另一个坑（值得记住）
+
+**opencode CLI 不认 `XDG_DATA_HOME`** —— 它永远读 `~/.local/share/opencode/opencode.db`。
+我一开始用"副本库 + 临时 XDG"做隔离测试，结果测试数据全写进了真实库（还留下 9 条临时 project 行，已清理）。
+⇒ 所以产品验收在测试里**默认跳过**，要用 `SESSION_TAPE_PRODUCT_CHECK=1` 显式开启。
 
 ## 九、还没做的（明确列出，不含糊）
 

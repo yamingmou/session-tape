@@ -123,44 +123,40 @@ def main(argv: list[str] | None = None) -> int:
 
     title = args.name or "（迁移）"
 
-    # ---- opencode（库型：两代存储都补）----
+    # ---- opencode（库型：只写新一代 session_v2；目录必须是客户端已认可的）----
     if args.dst == "opencode":
         from . import engines
         eng = engines.get("opencode")
         db = os.path.expanduser(args.out) if args.out else eng.find_db()
         if not db or not os.path.exists(db):
-            ap.error("opencode 目标需要 --out 指向 opencode.db（建议先复制一份再试）")
-        sid = eng.write_msgs(msgs, db, title=title, cwd=cwd)
-        back = eng.read_msgs(db, sid)
-        print(f"会话 id : {sid}")
-        print(f"写入    : {db}")
-        print(f"库内读回: {len(back)} 条（**这是我方读器，不算验收**）")
-
-        # 验收一律用产品自己：拿它自己的 `session list` 在目标目录里列一次
+            ap.error("opencode 目标需要 --out 指向 opencode.db")
         cli = eng.find_cli()
+        sid = eng.write_v2(msgs, db, title=title, cwd=cwd, cli=cli)
+        print(f"会话 id : {sid}")
+        print(f"写入    : {db}（session_v2 + session_message，形状照真机基准）")
+
         if not cli:
             print("验收    : ✗ 未通过 —— 找不到 opencode 可执行文件，无法让产品自己列一次")
-            print("          （只证明'写进了库'，不证明'产品看得见'）")
             return 2
+        # 验收一律用产品自己：list（能否列出）+ export（内容对不对）
         listed = eng.listed_by_product(sid, cwd, cli)
-        print(f"验收    : {'✅ 产品自己列出（session list）' if listed else '✗ 未通过 —— 库里有行，但 session list 列不出来'}")
-        if not listed:
-            print("          实测结论：手写库表不足以让产品认（它靠 project 映射）。")
-            print("          官方 `session import` 是正路，但目前对新会话返回 Bad Request，格式未攻克。")
-            return 2
-        return 0
+        print(f"验收-列 : {'✅ session list 里有这条' if listed else '✗ session list 里没有'}")
+        ok_content = False
+        if listed:
+            import json as _json
+            import subprocess as _sp
+            r = _sp.run([cli, "session", "export", sid], cwd=cwd, capture_output=True,
+                        text=True, encoding="utf-8", timeout=120)
+            if r.returncode == 0 and r.stdout.strip():
+                doc = _json.loads(r.stdout)
+                got_user = [m.get("text") for m in doc["messages"] if m.get("type") == "user"]
+                want_user = [m.text for m in msgs if m.role == "user"]
+                ok_content = got_user == want_user
+                print(f"验收-内容: {'✅ export 里的用户消息逐条一致' if ok_content else '✗ export 内容不一致'}"
+                      f"（{len(doc['messages'])} 条消息）")
+        return 0 if (listed and ok_content) else 2
 
     mod = render.module(args.dst)
-
-    if args.dst == "pi":
-        text = mod.render(msgs, cwd, title=title)
-        path = _pi_out(args.out)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(text)
-        print(f"写到    : {path}")
-        print(f"产物    : {text.count(chr(10))} 行，{len(text.encode('utf-8'))} 字节")
-        print("验收    : lab/verify.mjs <文件>  /  scripts/verify_gate_pi.py --pi <pi> --session <文件>")
-        return 0
 
     # ---- hermes（库型：行写进 sessions + messages）----
     if args.dst == "hermes":
@@ -212,6 +208,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"已登记  : sessions 表新增一行（模板取自会话 {str(tpl)[:8]}…）")
         else:
             print("未登记  : 只产了文件。要让产品看见，加 --install-wb-home <目录>")
+        return 0
+
+    # ---- pi（文件型）----
+    if args.dst == "pi":
+        text = mod.render(msgs, cwd, title=title)
+        path = _pi_out(args.out)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"会话 id : （文件里没有独立 id，pi 用文件名区分）")
+        print(f"写到    : {path}")
+        print(f"产物    : {text.count(chr(10))} 行，{len(text.encode('utf-8'))} 字节")
+        print("验收    : lab/verify.mjs <文件>  /  scripts/verify_gate_pi.py --pi <pi> --session <文件>")
         return 0
 
     # ---- codex：官方建壳、我们灌内容 ----

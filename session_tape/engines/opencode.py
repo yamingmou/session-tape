@@ -333,3 +333,129 @@ def listed_by_product(session_id: str, cwd: str, cli: str | None = None) -> bool
     r = subprocess.run([cli, "session", "list"], cwd=cwd, capture_output=True,
                        text=True, encoding="utf-8", timeout=120)
     return session_id in (r.stdout or "")
+
+# ---------------------------------------------------------------- v2 写入（照真机基准）
+
+def find_project(db: str, directory: str) -> str | None:
+    """查目录对应的 `project_id`；没有就返回 None。
+
+    ⚠️ **不能自己造这个 id**（实测：13 个已知 project 行，sha1/sha256/blake2b/md5
+    各种变体 0 命中 ⇒ 不是简单哈希，是产品创建时生成的随机 id）。
+    而且 `project` 行**只有产品自己会建**：用户在客户端里打开某个目录/在那里新建会话时生成。
+    实测过三种"借产品的手"的办法，都不行：
+      · 在目录里跑 `session list` → 不建；
+      · 用真实 export 原样 import → 回 `Session already exists`，在建 project 之前就短路；
+      · 用改过 id 的 export import → 回 `Bad Request` / `Internal Server Error`，也没建。
+    ⇒ 所以这里只查不造，查不到就**明说有哪些目录可用**，让人去客户端里开一次。
+    """
+    from pathlib import Path
+
+    real = str(Path(directory).resolve())
+    con = _connect(db, readonly=True)
+    try:
+        for cand in (real, str(directory), str(directory).rstrip("/")):
+            row = con.execute("select id from project where worktree=?", (cand,)).fetchone()
+            if row:
+                return row["id"]
+        return None
+    finally:
+        con.close()
+
+
+def known_directories(db: str) -> list[str]:
+    """客户端已经认可的目录（有 project 行的）——迁不过去时列给人看。"""
+    con = _connect(db, readonly=True)
+    try:
+        return [r["worktree"] for r in
+                con.execute("select worktree from project where id!='global' order by time_active desc")
+                if r["worktree"] and r["worktree"] != "/"]
+    finally:
+        con.close()
+
+
+def write_v2(msgs, db: str, *, title: str = "", cwd: str = "",
+             session_id: str | None = None, cli: str | None = None) -> str:
+    """只写**新一代** `session_v2` + `session_message`（形状照真机基准 `测试输出1` 抄）。
+
+    与旧实现的差别（都是实测出来的）：
+      · `session` 表**不写**——新版客户端只写 v2（基准那条会话在 `session` 里 0 行）；
+      · 必须有 `project` 行，否则产品列不出来（`session list` 按目录→项目过滤）；
+      · user 消息的 data 不是 `{"text":…}`，而是带 `metadata.displayText/agent/model` 的完整结构；
+      · assistant 的 data 带 `time.streamed/completed`、`finish`、`tokens`；
+      · 末尾要一条 `idle` 消息（`{"time":{"created":…},"outcome":"succeeded"}`）。
+    """
+    sid = session_id or _new_session_id()
+    now_ms = int(time.time() * 1000)
+    stamps, prev = [], int(msgs[0].ts_ms or now_ms)
+    for m in msgs:
+        ts = int(m.ts_ms or (prev + 1000))
+        if ts <= prev:
+            ts = prev + 1000
+        stamps.append(ts)
+        prev = ts
+
+    pid = find_project(db, cwd)
+    if not pid:
+        dirs = known_directories(db)
+        raise SystemExit(
+            "✗ 这个目录在客户端里还没有出现过，产品不会列出这条会话。\n"
+            f"  目录：{cwd}\n"
+            "  办法：在 OpenCode 客户端里打开这个目录（或在那里新建一次会话），再重试。\n"
+            "  客户端已认可的目录：\n" + "\n".join(f"    · {d}" for d in dirs[:10]))
+
+    con = _connect(db)
+    try:
+        con.execute("BEGIN")
+        tpl = con.execute("select * from session_v2 order by time_updated desc limit 1").fetchone()
+        if tpl is None:
+            raise SystemExit("✗ 目标库里没有 session_v2 行可当模板——先用产品建一条")
+        row = dict(tpl)
+        row.update({
+            "id": sid, "project_id": pid, "directory": cwd,
+            "title": title or "（迁移）",
+            "parent_id": None, "fork_session_id": None, "fork_boundary": None,
+            "time_created": stamps[0], "time_updated": stamps[-1],
+            "time_busy": stamps[0], "time_idle": stamps[-1], "time_viewed": stamps[-1],
+            "idle_outcome": "succeeded",
+            "cost": 0,
+            "tokens_input": 0, "tokens_output": 0, "tokens_reasoning": 0,
+            "tokens_cache_read": 0, "tokens_cache_write": 0,
+        })
+        row.setdefault("slug", "migrated-session")
+        _insert(con, "session_v2", row)
+
+        model = {"id": "migrated", "providerID": "migrated", "variant": "default"}
+        seq = 1
+        for m, ts in zip(msgs, stamps):
+            if m.role == "user":
+                data = {"metadata": {"displayText": m.text[:80], "comments": [], "attachments": [],
+                                     "agent": "build",
+                                     "model": {"modelID": "migrated", "providerID": "migrated"}},
+                        "time": {"created": ts}, "text": m.text, "files": [], "agents": []}
+            else:
+                data = {"time": {"created": ts, "streamed": ts, "completed": ts},
+                        "agent": "build", "model": model,
+                        "content": [{"type": "text", "text": m.text}],
+                        "finish": "stop", "rawFinish": "stop", "cost": 0,
+                        "tokens": {"input": 0, "output": 0, "reasoning": 0,
+                                   "cache": {"read": 0, "write": 0}}}
+            _insert(con, "session_message", {
+                "id": f"msg_{sid[4:14]}{seq:04d}", "session_id": sid,
+                "type": m.role, "seq": seq,
+                "time_created": ts, "time_updated": ts,
+                "data": json.dumps(data, ensure_ascii=False),
+            })
+            seq += 1
+        _insert(con, "session_message", {
+            "id": f"msg_{sid[4:14]}{seq:04d}", "session_id": sid,
+            "type": "idle", "seq": seq,
+            "time_created": stamps[-1], "time_updated": stamps[-1],
+            "data": json.dumps({"time": {"created": stamps[-1]}, "outcome": "succeeded"}),
+        })
+        con.commit()
+        return sid
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
