@@ -269,6 +269,11 @@ def register(path: str, thread_id: str, title: str, *, codex_home: str = "",
             finally:
                 con.close()
 
+        # 迁移不是分支：把 register_branch 顺手写下的谱系边摘掉
+        # （否则产品若"归档态沿谱系继承"，模板被归档会连带我们的产物）
+        from ._lineage import detach
+        detach(ad, thread_id)
+
         # 可见性的可自动代理：投影必须归零（见 _assert_projection_zero 的说明）
         _assert_projection_zero(ad, thread_id)
         return template["id"]

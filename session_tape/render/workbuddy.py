@@ -113,6 +113,8 @@ def register(path: str, session_id: str, title: str, *, home: str = "",
         if src is None:
             raise SystemExit("✗ 读不到模板会话的元数据")
         ad.register_branch(src, session_id, path, title, parent_id=src.id)
+        from ._lineage import detach   # 迁移不是分支：摘掉谱系边
+        detach(ad, session_id)
         # ③ 覆盖 cwd：模板带过来的是**那条会话的**工作目录
         #    （打分支时正好对；迁移时是别人的目录，必须改成我们要写进去的那个）
         if cwd:

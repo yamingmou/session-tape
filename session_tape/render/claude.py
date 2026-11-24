@@ -99,4 +99,6 @@ def register(path: str, session_id: str, title: str, *, claude_dir: str = "",
             raise SystemExit("✗ 目标 ~/.claude 里没有现成会话可当模板——先用 Claude Code 跑一轮")
         tid = found[0]
     ad.register_branch(SessionMeta(id=tid, title=""), session_id, path, title, parent_id=tid)
+    from ._lineage import detach   # 迁移不是分支：摘掉谱系边
+    detach(ad, session_id)
     return tid

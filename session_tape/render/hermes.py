@@ -81,6 +81,8 @@ def write(rows: list[dict], db_path: str, session_id: str, *, template_id: str |
         ad.finalize_branch(tmp_ref, dst_ref)
         ad.register_branch(SessionMeta(id=tpl, title=""), session_id, dst_ref, "（迁移）",
                            parent_id=tpl)
+        from ._lineage import detach   # 迁移不是分支：摘掉谱系边
+        detach(ad, session_id)
         return dst_ref
     finally:
         if prev_home is None:
