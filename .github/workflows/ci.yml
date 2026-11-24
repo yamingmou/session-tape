@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 语法检查
+        run: python -m compileall -q session_tape scripts tests
+
+      # 读侧复用 session-fork-core 的适配器；它公开可用，装上后往返测试才是真跑
+      - name: 装读侧依赖（session-fork-core）
+        run: pip install "git+https://github.com/yamingmou/session-fork-core.git@v2.4.24"
+
+      - name: 契约测试与往返测试
+        run: |
+          set -e
+          for t in tests/test_*.py; do
+            echo "── $t"
+            python "$t"
+          done
+
+      - name: 自检（不含需要真机产品的项）
+        run: python scripts/selfcheck.py
