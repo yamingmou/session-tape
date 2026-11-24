@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "session-tape"
+version = "0.1.1"
+description = "把一个产品的会话历史搬到另一个产品里继续（只搬文本历史，单向）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["session", "migration", "coding-agent", "cli", "claude-code", "codex", "conversation-history"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Topic :: Utilities",
+    "Intended Audience :: Developers",
+]
+# 刻意零第三方运行时依赖：读侧复用 session-fork-core（可选依赖），
+# 生成目标是纯标准库拼 JSON；若走 zip 分发也不吃亏。
+dependencies = []
+
+[project.optional-dependencies]
+# 读源产品需要它（六个适配器都在里面）。不装也能用 demo 与纯格式渲染。
+source = ["session-fork-core"]
+
+[project.urls]
+Homepage = "https://github.com/yamingmou/session-tape"
+Repository = "https://github.com/yamingmou/session-tape"
+Issues = "https://github.com/yamingmou/session-tape/issues"
+Changelog = "https://github.com/yamingmou/session-tape/commits/main"
+
+[project.scripts]
+session-tape = "session_tape.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["session_tape*"]
