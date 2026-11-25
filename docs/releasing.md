@@ -77,3 +77,11 @@ upload failed.
 - Confirm the About text and topics still describe what the project is;
 - Version badges follow the tag automatically — nothing to edit;
 - Release notes, if you write them, describe **what changed for users**, not how it was made.
+
+## 7. 一个会让人来报 bug 的坑：pip 会先用缓存
+
+发完新版，自己或用户 `pip install -U <pkg>` 可能**仍装到上一个版本**——本地 pip 缓存了旧的
+索引页（实测：0.1.2 已上传并可装，`pip install -U` 拿到的还是 0.1.1）。
+
+所以：① 验证一律加 `--no-cache-dir`；② 用户报"你说的功能没有"时，先让他 `pip show` 看版本，
+再让他 `pip install -U --no-cache-dir <pkg>`。这条比任何"发布成功"的输出都实际。
