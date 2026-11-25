@@ -168,3 +168,29 @@ workbuddy 也是（转录 + `sessions` 一行），少一行就"文件在、列�
 - **多源批量**：现在一次一条会话，没有"整库搬家"；
 - **同产品跨机**：路径/账号字段还不能自动改写（`/Users/A/…` → `/home/B/…`）；
 - **L1 那两家的界面可见**：claude-code / openclaw 只到格式往返。
+
+## 十、Qwen（QwenWorkCN，第八个产品）
+
+**基线**：QwenWorkCN 桌面端，库在 `~/Library/Application Support/QwenWorkCN/data/agents.db`
+（实测 11 会话 / 356 条消息）。
+
+| 项 | 状态 |
+|---|---|
+| 读（作为源） | ✅ 真库可读（有一条 166 条的会话读通） |
+| 写（作为目标） | ✅ **L2**：库副本写入、我方读器读回逐条一致；原会话未动 |
+| 界面可见 | ❌ **未验**（产品没有会话 CLI，只能靠界面看） |
+
+### 三件必须照做的事实
+
+1. **`searchable_text` 是搜索的承载点**：FTS 触发器直接把它塞进 `messages_fts`
+   （`AFTER INSERT … VALUES (NEW.searchable_text, …)`）。不填它，消息在界面上有、**但搜不到**
+   ——又一个"两个地方都要写、只写一处等于没写"。（这一条与 opencode 的 `event_sequence`
+   是同族：产品把"能不能用"分散在多个承载点上。）
+2. **时间戳按秒**（`1793805524`），写毫秒会被显示成几万年后。
+3. **三张表都要有行**：`chats` + `sub_chats` + `messages`；`chats.project_id` 为 NOT NULL
+   且指向 `projects` 表，写入沿用模板会话的 `project_id`（自造没有依据）。
+
+### 顺手修掉一个我自己写的边界 bug
+
+时间戳单调性修正里 `prev` 初始值取成"首条时间戳"，导致**首条被顶高 1 秒**
+（qwen 与 opencode 两处同款）。改成 `first - 1`，测试里直接断言首条时间戳等于原值。

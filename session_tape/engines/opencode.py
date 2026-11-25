@@ -166,7 +166,9 @@ def write_msgs(msgs, db: str, *, title: str = "", cwd: str = "",
 
     sid = session_id or _new_session_id()
     now_ms = int(time.time() * 1000)
-    stamps, prev = [], int(msgs[0].ts_ms or now_ms)
+    first_ms = int(msgs[0].ts_ms or now_ms)
+    # prev 取首条 -1ms：若取相等，首条会被下面的单调性修正顶高 1 秒
+    stamps, prev = [], first_ms - 1
     for m in msgs:
         ts = int(m.ts_ms or (prev + 1000))
         if ts <= prev:
@@ -387,7 +389,9 @@ def write_v2(msgs, db: str, *, title: str = "", cwd: str = "",
     """
     sid = session_id or _new_session_id()
     now_ms = int(time.time() * 1000)
-    stamps, prev = [], int(msgs[0].ts_ms or now_ms)
+    first_ms = int(msgs[0].ts_ms or now_ms)
+    # prev 取首条 -1ms：若取相等，首条会被下面的单调性修正顶高 1 秒
+    stamps, prev = [], first_ms - 1
     for m in msgs:
         ts = int(m.ts_ms or (prev + 1000))
         if ts <= prev:

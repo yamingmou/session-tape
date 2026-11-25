@@ -124,6 +124,30 @@ def main(argv: list[str] | None = None) -> int:
 
     title = args.name or "（迁移）"
 
+    # ---- qwen（库型：chats + sub_chats + messages；searchable_text 必须填）----
+    if args.dst == "qwen":
+        from . import engines
+        eng = engines.get("qwen")
+        db = os.path.expanduser(args.out) if args.out else eng.find_db()
+        if not db or not os.path.exists(db):
+            ap.error("qwen 目标需要 --out 指向 agents.db（建议先复制一份再试）")
+        cid = eng.write_msgs(msgs, db, title=title, cwd=cwd)
+        back = eng.read_msgs(db, cid)
+        print(f"会话 id : {cid}")
+        print(f"写入    : {db}")
+        print(f"库内读回: {len(back)} 条（我方读器）")
+
+        import sqlite3
+        con = sqlite3.connect(db)
+        n = con.execute("select count(*) from messages where chat_id=?", (cid,)).fetchone()[0]
+        fts = con.execute("select count(*) from messages_fts where chat_id=?", (cid,)).fetchone()[0]
+        con.close()
+        print(f"搜索索引: {fts}/{n} 条 —— {'✅ 已同步（触发器）' if fts == n else '✗ 没同步，界面里搜不到'}")
+        if len(back) == len(msgs) and fts == n:
+            print("验收    : ✅ 条数一致 + 搜索索引同步（界面可见未验，属 L2）")
+            return 0
+        return 2
+
     # ---- opencode（库型：只写新一代 session_v2；目录必须是客户端已认可的）----
     if args.dst == "opencode":
         from . import engines

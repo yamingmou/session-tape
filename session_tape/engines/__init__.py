@@ -3,9 +3,9 @@
 每个引擎提供：`find_db()` / `list_sessions()` / `read_msgs()` / `write_msgs()`。
 加一个产品的真实成本就是这四个函数 + 一份契约测试。
 """
-from . import opencode
+from . import opencode, qwen
 
-ENGINES = {"opencode": opencode}
+ENGINES = {"opencode": opencode, "qwen": qwen}
 
 
 def get(name: str):
