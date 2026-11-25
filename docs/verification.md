@@ -169,7 +169,7 @@ workbuddy 也是（转录 + `sessions` 一行），少一行就"文件在、列�
 - **同产品跨机**：路径/账号字段还不能自动改写（`/Users/A/…` → `/home/B/…`）；
 - **L1 那两家的界面可见**：claude-code / openclaw 只到格式往返。
 
-## 十、Qwen（QwenWorkCN，第八个产品）
+## 十、Qwen（QwenWorkCN，第八个产品）· 写 = **L3**
 
 **基线**：QwenWorkCN 桌面端，库在 `~/Library/Application Support/QwenWorkCN/data/agents.db`
 （实测 11 会话 / 356 条消息）。
@@ -178,7 +178,7 @@ workbuddy 也是（转录 + `sessions` 一行），少一行就"文件在、列�
 |---|---|
 | 读（作为源） | ✅ 真库可读（有一条 166 条的会话读通） |
 | 写（作为目标） | ✅ **L2**：库副本写入、我方读器读回逐条一致；原会话未动 |
-| 界面可见 | ❌ **未验**（产品没有会话 CLI，只能靠界面看） |
+| 界面可见 | ✅ **已验**（2026-11-25 用户在 QwenWorkCN 会话列表里看到「Qwen 分支验证」） |
 
 ### 三件必须照做的事实
 
