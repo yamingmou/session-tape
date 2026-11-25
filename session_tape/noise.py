@@ -31,6 +31,13 @@ _PLACEHOLDER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 平台通知（不是人说的话，也不是占位）：实测形态形如
+#   [System] Task "Qwen 分支验证" (chatId: mw8…) has failed. Error: …
+# 形态写得很窄 —— 只要开头是 `[System] Task "…" (chatId:` 才算；
+# 人在对话里提到 `[System]` 也不会被吞（下面有用例）。
+_PLATFORM_NOTICE_RE = re.compile(
+    r'^\s*\[System\]\s+Task\s+".*?"\s*\(chatId:\s*[\w-]+\)', re.DOTALL)
+
 # 平台包裹：整块 <tag ...>…</tag>
 _WRAPPER_RE = re.compile(r"^\s*<([a-zA-Z][\w-]*)(?:\s[^>]*)?>.*?</\1>\s*$", re.DOTALL)
 _USER_QUERY_RE = re.compile(r"<user_query>(.*?)</user_query>", re.DOTALL)
@@ -49,6 +56,11 @@ def strip_wrappers(text: str) -> str:
             break
         out = (m.group(0)[m.group(0).find(">") + 1: m.group(0).rfind("<")]).strip()
     return out
+
+
+def is_platform_notice(text: str) -> bool:
+    """是不是产品自己插进来的状态通知（如任务失败），不属于对话内容。"""
+    return bool(_PLATFORM_NOTICE_RE.match(text))
 
 
 def is_placeholder(text: str) -> bool:
@@ -71,6 +83,10 @@ def clean(msgs, stats: dict[str, int] | None = None):
     out: list[Msg] = []
     for m in msgs:
         text = strip_wrappers(m.text) if m.role == "user" else m.text.strip()
+        if text and is_platform_notice(text):
+            key = "平台状态通知"
+            stats[key] = stats.get(key, 0) + 1
+            continue
         if not text or is_placeholder(text):
             key = "占位/中断文本"
             stats[key] = stats.get(key, 0) + 1
