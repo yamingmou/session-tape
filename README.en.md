@@ -58,7 +58,7 @@ Reading and writing are independent, so the cost is N + M adapters rather than N
 | | pi | codex | WorkBuddy | Claude Code | Hermes | OpenClaw | OpenCode | Qwen |
 |---|---|---|---|---|---|---|---|---|
 | **read** (as source) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **write** (as target) | ✅ L3 | ✅ L3 | ✅ L2 | ✅ L1 | ✅ L2 | ✅ L1 | ✅ L3 | ✅ L3 |
+| **write** (as target) | ✅ L3 | ✅ L3 | ✅ L3 | ✅ L1 | ✅ L2 | ✅ L1 | ✅ L3 | ✅ L3 |
 
 Verification levels — labelled because mixing them would be self-deception:
 
