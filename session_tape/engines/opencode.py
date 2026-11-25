@@ -78,7 +78,10 @@ def list_sessions(db: str, limit: int = 20) -> list[tuple[str, str, int]]:
     con = _connect(db, readonly=True)
     try:
         rows = con.execute(
-            "select id, title, time_updated from session order by time_updated desc limit ?",
+            # ⚠️ 必须查**新一代** session_v2：新版客户端只写 v2，
+            # 旧表 session 里是历史遗留（实测：按旧表取"最新会话"会取到一条
+            # 产品已经不再列出的旧会话，进而误判"这条没有 var2 行"）。
+            "select id, title, time_updated from session_v2 order by time_updated desc limit ?",
             (limit,)).fetchall()
         return [(r["id"], r["title"] or "", r["time_updated"] or 0) for r in rows]
     finally:
