@@ -112,7 +112,9 @@ def register(path: str, session_id: str, title: str, *, home: str = "",
             src = ad.load_session_meta(row["id"])
         if src is None:
             raise SystemExit("✗ 读不到模板会话的元数据")
-        ad.register_branch(src, session_id, path, title, parent_id=src.id)
+        # ⚠️ status 必须显式给 completed：register_branch 默认 terminated 是**打分支**的
+        # "冻结在切点"语义；迁移进来的会话是要**接着聊**的，用 terminated 会显示成已终止。
+        ad.register_branch(src, session_id, path, title, parent_id=src.id, status="completed")
         from ._lineage import detach   # 迁移不是分支：摘掉谱系边
         detach(ad, session_id)
         # ③ 覆盖 cwd：模板带过来的是**那条会话的**工作目录
