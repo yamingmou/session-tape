@@ -194,3 +194,22 @@ workbuddy 也是（转录 + `sessions` 一行），少一行就"文件在、列�
 
 时间戳单调性修正里 `prev` 初始值取成"首条时间戳"，导致**首条被顶高 1 秒**
 （qwen 与 opencode 两处同款）。改成 `first - 1`，测试里直接断言首条时间戳等于原值。
+
+## 十一、明确**不支持**的产品（带判据，免得有人白试）
+
+三个产品在本机装着，但都做不了。**判死的理由各不相同**，写在这里比写"暂不支持"有用：
+
+| 产品 | 判据（实测） | 结论 |
+|---|---|---|
+| **Trae CN** | `ModularData/ai-agent/database.db`（80 MB）与 `ckg_server/env_codekg.db` 的文件头**都不是** `SQLite format 3`；前 96 字节 32/32 位互不相同（高熵）⇒ 加密或私有格式 | ❌ 读不了：没有密钥 |
+| **Windsurf** | 会话索引 `chat.ChatSessionStore.index` 的值是 `{"version":1,"entries":{}}` —— **global 与 7 个 workspace 里全为空** | ❌ 本地无转录：Cascade 会话在云端 |
+| **Kimi** | `~/Library/Application Support/Kimi` 只有 4 KB | ⚪ 不是不支持，是**无样本**（装了没用过） |
+
+⚠️ 这三条都是**否证**，不是猜测：`database.db` 那种"看着像 SQLite 但打不开"的情况，
+最容易被误判成"驱动问题"而反复重试——所以把字节级判据写进来。
+
+### 如果要支持它们，前置条件是什么
+
+- Trae：需要它的加密方案与密钥来源（客户端里取，属另一件事）；
+- Windsurf：需要它的云端 API 或导出功能（不是本地文件问题）；
+- Kimi：先在客户端里真用一轮，再谈格式。
